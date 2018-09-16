@@ -4,6 +4,7 @@ protocol People {
   record Person {
     string name;
     int age;
+    string phone;
   }
 
   record PeopleRequest {

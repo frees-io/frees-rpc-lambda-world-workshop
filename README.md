@@ -10,6 +10,8 @@
     - [Protocol](#protocol)
     - [Server](#server)
     - [Client](#client)
+- [Evolving the Avro schema](#evolving-the-avro-schema)
+  - [Protocol](#protocol-1)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -288,6 +290,67 @@ for {
     .eval(List("foo", "bar", "baz").traverse[F, Person](peopleApi.getPersonByName))
     .as(StreamApp.ExitCode.Success)
 } yield exitCode
+```
+
+## Evolving the Avro schema
+
+As we have seen before, both client and server are using the same common protocol defined via Avro schema, which is an ideal scenario but realistically speaking the server side might need to add certainly changes in the model. Then how the server can preserve the compatibility with clients that are still using the old model?
+
+Thanks to the Avro definitions we can add evolutions to the models in a safety way, keeping all the clients fully compatible but obviously, there are some limited operations that can't be done, like removing a field in a response model or adding a new required field to a request object.
+
+To illustrate that non-updated clients are able to keep interacting with evolved servers, we'll just add a new field `phone` to `Person`.
+
+### Protocol
+
+Let's add a new evolution to the models described in the protocol
+
+**_People.avdl_**
+
+
+```scala
+protocol People {
+
+  record Person {
+    string name;
+    int age;
+    string phone;
+  }
+
+  record PeopleRequest {
+    string name;
+  }
+
+  record PeopleResponse {
+    Person person;
+  }
+
+}
+```
+
+We can now run the server app using this new version, and the client app with the previous one, and the requests should have been processed properly on both sides.
+
+As we can see, the client digests `Person`s instances included in the responses as expected:
+
+```scala
+INFO  - Created new RPC client for (localhost,19683)
+INFO  - Request: foo
+INFO  - Result: PeopleResponse(Person(foo,24))
+INFO  - Request: bar
+INFO  - Result: PeopleResponse(Person(bar,9))
+INFO  - Request: baz
+INFO  - Result: PeopleResponse(Person(baz,17))
+INFO  - Removed 1 RPC clients from cache.
+```
+
+Even when actually the server is including the telephone numbers at them:
+
+```scala
+INFO  - PeopleService - Request: PeopleRequest(foo)
+INFO  - PeopleService - Sending response: Person(foo,24,(206) 198-8396)
+INFO  - PeopleService - Request: PeopleRequest(bar)
+INFO  - PeopleService - Sending response: Person(bar,9,(206) 740-2096)
+INFO  - PeopleService - Request: PeopleRequest(baz)
+INFO  - PeopleService - Sending response: Person(baz,17,(206) 812-1984)
 ```
 
 <!-- DOCTOC SKIP -->

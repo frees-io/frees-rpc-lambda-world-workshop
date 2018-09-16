@@ -21,8 +21,18 @@ object PeopleRepository {
     private[this] val nextAge: StateT[F, Seed, Int] = StateT(
       seed => (seed.next, (seed.long % 100).toInt).pure[F])
 
-    override def getPerson(name: String): F[Person] =
-      nextAge.map(age => Person(name, age)).runA(initialSeed(name))
+    private[this] val nextPhone: StateT[F, Seed, String] = StateT { seed =>
+      val phoneDigits = f"${(seed.long % 100000000).abs}%07d"
+      val phone       = s"(206) ${phoneDigits.substring(0, 3)}-${phoneDigits.substring(3, 7)}"
+      (seed.next, phone).pure[F]
+    }
+
+    override def getPerson(name: String): F[Person] = {
+      for {
+        age   <- nextAge
+        phone <- nextPhone
+      } yield Person(name, age, phone)
+    }.runA(initialSeed(name))
   }
 
   def apply[F[_]](implicit ev: PeopleRepository[F]): PeopleRepository[F] = ev
