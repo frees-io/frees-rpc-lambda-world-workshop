@@ -17,6 +17,11 @@
   - [Server](#server-1)
   - [Client](#client-1)
   - [Result](#result)
+- [Server-streaming RPC service: `GetTemperature`](#server-streaming-rpc-service-gettemperature)
+  - [Protocol](#protocol-3)
+  - [Server](#server-2)
+  - [Client](#client-2)
+  - [Result](#result-1)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -455,6 +460,185 @@ And the server log the request as expected:
 
 ```bash
 INFO  - SmartHomeService - Request: IsEmptyRequest()
+```
+
+
+## Server-streaming RPC service: `GetTemperature`
+
+Following the established plan, the next step is building the service that returns a stream of temperature values, to let clients subscribe to collect real-time info.
+
+### Protocol
+
+As usual we should add this operation in the protocol.
+
+**_Messages.scala_**
+
+Adding new models:
+
+```scala
+case class TemperatureUnit(value: String) extends AnyVal
+case class Temperature(value: Double, unit: TemperatureUnit)
+```
+
+**_SmartHomeService.scala_**
+
+And the `getTemperature` operation:
+
+```scala
+@service(Protobuf) trait SmartHomeService[F[_]] {
+
+  def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
+
+  def getTemperature(empty: Empty.type): Stream[F, Temperature]
+}
+```
+
+### Server
+
+If we want to emit a stream of `Temperature` values,  we would be well advised to develop a producer of `Temperature` in the server side. For instance:
+
+```scala
+trait TemperatureReader[F[_]] {
+  def sendSamples: Stream[F, Temperature]
+}
+
+object TemperatureReader {
+  implicit def instance[F[_]: Sync: Logger: Timer]: TemperatureReader[F] =
+    new TemperatureReader[F] {
+      val seed = Temperature(77d, TemperatureUnit("Fahrenheit"))
+
+      def readTemperature(current: Temperature): F[Temperature] =
+        Timer[F]
+          .sleep(1.second)
+          .flatMap(_ =>
+            Sync[F].delay {
+              val increment: Double = Random.nextDouble() / 2d
+              val signal            = if (Random.nextBoolean()) 1 else -1
+              val currentValue      = current.value
+
+              current.copy(
+                value = BigDecimal(currentValue + (signal * increment))
+                  .setScale(2, RoundingMode.HALF_UP)
+                  .doubleValue)
+          })
+
+      override def sendSamples: Stream[F, Temperature] =
+        Stream.iterateEval(seed) { t =>
+          Logger[F].info(s"* New Temperature 👍  --> $t").flatMap(_ => readTemperature(t))
+        }
+    }
+
+  def apply[F[_]](implicit ev: TemperatureReader[F]): TemperatureReader[F] = ev
+}
+```
+
+And this can be returned as response of the new service, in the interpreter.
+
+```scala
+override def getTemperature(empty: Empty.type): Stream[F, Temperature] = for {
+  _            <- Stream.eval(Logger[F].info(s"$serviceName - getTemperature Request"))
+  temperatures <- TemperatureReader[F].sendSamples.take(20)
+} yield temperatures
+```
+
+### Client
+
+We have nothing less than adapt the client to consume the new service when it starting up. To this, a couple of changes are needed:
+
+Firstly we should enrich the algebra
+
+```scala
+trait SmartHomeServiceApi[F[_]] {
+
+  def isEmpty(): F[Boolean]
+
+  def getTemperature(): Stream[F, Temperature]
+
+}
+```
+
+Whose interpretation could be:
+
+```scala
+def getTemperature: Stream[F, TemperaturesSummary] = for {
+  client <- Stream.eval(clientF)
+  response <- client
+    .getTemperature(Empty)
+    .flatMap(t => Stream.eval(L.info(s"* Received new temperature: 👍  --> $t")).as(t))
+    .fold(TemperaturesSummary.empty)((summary, temperature) => summary.append(temperature))
+} yield response
+```
+
+Basically, we are logging the incoming values and at the end we calculate the average of those values.
+
+Now, the client app calls to both services: `isEmpty` and `getTemperature`.
+And finally, to call it:
+
+```scala
+for {
+  serviceApi  <- SmartHomeServiceApi.createInstance(config.host.value, config.port.value)
+  _           <- Stream.eval(serviceApi.isEmpty)
+  summary     <- serviceApi.getTemperature
+  _           <- Stream.eval(Logger[F].info(s"The average temperature is: ${summary.averageTemperature}"))
+} yield StreamApp.ExitCode.Success
+```
+
+### Result
+
+When we run the client now with `sbt runClient` we get:
+
+```bash
+INFO  - Created new RPC client for (localhost,19683)
+INFO  - Result: IsEmptyResponse(true)
+INFO  - * Received new temperature: 👍  --> Temperature(77.0,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(77.25,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(77.58,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(78.02,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(77.67,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(77.5,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(77.58,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(77.15,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.66,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.45,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.77,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.74,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.41,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.59,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.77,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.49,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.04,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(76.42,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(75.95,TemperatureUnit(Fahrenheit))
+INFO  - * Received new temperature: 👍  --> Temperature(75.97,TemperatureUnit(Fahrenheit))
+INFO  - The average temperature is: Temperature(76.85,TemperatureUnit(Fahrenheit))
+INFO  - Removed 1 RPC clients from cache.
+```
+
+And the server log the request as expected:
+
+```bash
+INFO  - ServiceName(seedServer) - Starting app.server at Host(localhost):Port(19683)
+INFO  - SmartHomeService - Request: IsEmptyRequest()
+INFO  - SmartHomeService - getTemperature Request
+INFO  - * New Temperature 👍  --> Temperature(77.0,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(77.25,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(77.58,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(78.02,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(77.67,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(77.5,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(77.58,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(77.15,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.66,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.45,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.77,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.74,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.41,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.59,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.77,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.49,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.04,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(76.42,TemperatureUnit(Fahrenheit))
+INFO  - * New Temperature 👍  --> Temperature(75.95,TemperatureUnit(Fahrenheit))
 ```
 
 <!-- DOCTOC SKIP -->
