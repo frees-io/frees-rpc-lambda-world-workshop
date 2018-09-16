@@ -22,6 +22,11 @@
   - [Server](#server-2)
   - [Client](#client-2)
   - [Result](#result-1)
+- [Bidirectional streaming RPC service: `comingBackMode`](#bidirectional-streaming-rpc-service-comingbackmode)
+  - [Protocol](#protocol-4)
+  - [Server](#server-3)
+  - [Client](#client-3)
+  - [Result](#result-2)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -639,6 +644,266 @@ INFO  - * New Temperature 👍  --> Temperature(76.49,TemperatureUnit(Fahrenheit
 INFO  - * New Temperature 👍  --> Temperature(76.04,TemperatureUnit(Fahrenheit))
 INFO  - * New Temperature 👍  --> Temperature(76.42,TemperatureUnit(Fahrenheit))
 INFO  - * New Temperature 👍  --> Temperature(75.95,TemperatureUnit(Fahrenheit))
+```
+
+## Bidirectional streaming RPC service: `comingBackMode`
+
+To illustrate the bidirectional streaming, we are going to build a new service that makes the server react to real-time info provided by the client. In this case, as we said above, the client (the mobile app) will emit a stream of coordinates (latitude and longitude), and the server (the smart home) will trigger some actions according to the distance.
+
+### Protocol
+
+So let's add this service to the protocol.
+
+**_Messages.scala_**
+
+Adding new models:
+
+```scala
+case class Point(lat: Double, long: Double)
+case class Location(currentLocation: Point, destination: Point, distanceToDestination: Double)
+case class SmartHomeAction(description: String, isDone: Boolean)
+@message
+final case class ComingBackModeResponse(actions: List[SmartHomeAction])
+```
+
+**_SmartHomeService.scala_**
+
+And the `comingBackMode` operation:
+
+```scala
+@service(Protobuf) trait SmartHomeService[F[_]] {
+
+  def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
+
+  def getTemperature(empty: Empty.type): Stream[F, Temperature]
+
+  def comingBackMode(request: Stream[F, Location]): Stream[F, ComingBackModeResponse]
+}
+```
+
+### Server
+
+So there is a new function to be implemented in the interpreter:
+
+```scala
+override def comingBackMode(request: Stream[F, Location]): Stream[F, ComingBackModeResponse] =
+  for {
+    _        <- Stream.eval(Logger[F].info(s"$serviceName - Enabling Coming Back Home mode"))
+    location <- request
+    _ <- Stream.eval(
+      if (location.distanceToDestination > 0.0d) Logger[F].info(s"$serviceName - Distance to destination: ${location.distanceToDestination} mi")
+      else Logger[F].info(s"$serviceName - You have reached your destination 🏡"))
+    response <- Stream.eval(SmartHomeSupervisor[F].performAction(location))
+  } yield response
+```
+
+### Client
+
+Again, if the client will emit a stream of locations, we should develop a producer, which as been created at `LocationGenerators`. No big deal, so far. But we have to add this operation in the `SmartHomeServiceApi`:
+
+```scala
+trait SmartHomeServiceApi[F[_]] {
+  def isEmpty(): F[Boolean]
+  def getTemperature(): Stream[F, Temperature]
+  def comingBackMode(locations: Stream[F, Location]): F[Boolean]
+}
+```
+
+Whose interpretation could be:
+
+```scala
+def comingBackMode(locations: Stream[F, Location]): Stream[F, ComingBackModeResponse] = for {
+  client   <- Stream.eval(clientF)
+  response <- client.comingBackMode(locations)
+} yield response
+```
+
+Now, we have all the ingredients to proceed in the ClientApp:
+
+```scala
+for {
+  serviceApi <- SmartHomeServiceApi.createInstance(config.host.value, config.port.value)
+  _          <- Stream.eval(serviceApi.isEmpty)
+  summary    <- serviceApi.getTemperature
+  _          <- Stream.eval(Logger[F].info(s"The average temperature is: ${summary.averageTemperature}"))
+  response   <- serviceApi.comingBackMode(LocationsGenerator.get[F])
+} yield response.actions
+```
+
+### Result
+
+When we run the client now with `sbt runClient` we get:
+
+```bash
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👮 - Enable security cameras
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 💦 - Disable irrigation system
+
+INFO  - 🔌 - Send Rumba to the charging dock
+
+INFO  - 🛋 - Start heating the living room
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 🔥 - Fireplace in ambient mode
+
+INFO  - 🗞 - Get news summary
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 💧 - Increase the power of the hot water heater
+
+INFO  - 🛁 - Turn the towel heaters on
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 😎 - Low the blinds
+
+INFO  - 💡 - Turn on the lights
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👩 - Connect Alexa
+
+INFO  - 📺 - Turn on the TV
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 🔦 - Turn exterior lights on
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 👀 - Waiting for a new location...
+
+INFO  - 🚪 - Unlock doors
+
+INFO  - Removed 1 RPC clients from cache.
+```
+
+And the server log the request as expected:
+
+```bash
+INFO  - SmartHomeService - Enabling Coming Back Home mode
+INFO  - SmartHomeService - Distance to destination: 6.39 mi
+INFO  - SmartHomeService - Distance to destination: 6.26 mi
+INFO  - SmartHomeService - Distance to destination: 6.13 mi
+INFO  - SmartHomeService - Distance to destination: 6.0 mi
+INFO  - SmartHomeService - Distance to destination: 5.87 mi
+INFO  - SmartHomeService - Distance to destination: 5.74 mi
+INFO  - SmartHomeService - Distance to destination: 5.61 mi
+INFO  - SmartHomeService - Distance to destination: 5.48 mi
+INFO  - SmartHomeService - Distance to destination: 5.35 mi
+INFO  - SmartHomeService - Distance to destination: 5.22 mi
+INFO  - SmartHomeService - Distance to destination: 5.09 mi
+INFO  - SmartHomeService - Distance to destination: 4.96 mi
+INFO  - SmartHomeService - Distance to destination: 4.83 mi
+INFO  - SmartHomeService - Distance to destination: 4.7 mi
+INFO  - SmartHomeService - Distance to destination: 4.57 mi
+INFO  - SmartHomeService - Distance to destination: 4.44 mi
+INFO  - SmartHomeService - Distance to destination: 4.31 mi
+INFO  - SmartHomeService - Distance to destination: 4.18 mi
+INFO  - SmartHomeService - Distance to destination: 4.05 mi
+INFO  - SmartHomeService - Distance to destination: 3.91 mi
+INFO  - SmartHomeService - Distance to destination: 3.78 mi
+INFO  - SmartHomeService - Distance to destination: 3.65 mi
+INFO  - SmartHomeService - Distance to destination: 3.52 mi
+INFO  - SmartHomeService - Distance to destination: 3.39 mi
+INFO  - SmartHomeService - Distance to destination: 3.26 mi
+INFO  - SmartHomeService - Distance to destination: 3.13 mi
+INFO  - SmartHomeService - Distance to destination: 3.0 mi
+INFO  - SmartHomeService - Distance to destination: 2.87 mi
+INFO  - SmartHomeService - Distance to destination: 2.74 mi
+INFO  - SmartHomeService - Distance to destination: 2.61 mi
+INFO  - SmartHomeService - Distance to destination: 2.48 mi
+INFO  - SmartHomeService - Distance to destination: 2.35 mi
+INFO  - SmartHomeService - Distance to destination: 2.22 mi
+INFO  - SmartHomeService - Distance to destination: 2.09 mi
+INFO  - SmartHomeService - Distance to destination: 1.96 mi
+INFO  - SmartHomeService - Distance to destination: 1.83 mi
+INFO  - SmartHomeService - Distance to destination: 1.7 mi
+INFO  - SmartHomeService - Distance to destination: 1.57 mi
+INFO  - SmartHomeService - Distance to destination: 1.44 mi
+INFO  - SmartHomeService - Distance to destination: 1.3 mi
+INFO  - SmartHomeService - Distance to destination: 1.17 mi
+INFO  - SmartHomeService - Distance to destination: 1.04 mi
+INFO  - SmartHomeService - Distance to destination: 0.91 mi
+INFO  - SmartHomeService - Distance to destination: 0.78 mi
+INFO  - SmartHomeService - Distance to destination: 0.65 mi
+INFO  - SmartHomeService - Distance to destination: 0.52 mi
+INFO  - SmartHomeService - Distance to destination: 0.39 mi
+INFO  - SmartHomeService - Distance to destination: 0.26 mi
+INFO  - SmartHomeService - Distance to destination: 0.13 mi
+INFO  - SmartHomeService - You have reached your destination 🏡
 ```
 
 <!-- DOCTOC SKIP -->
