@@ -1,0 +1,17 @@
+@namespace("com.fortyseven.protocol")
+protocol People {
+
+  record Person {
+    string name;
+    int age;
+  }
+
+  record PeopleRequest {
+    string name;
+  }
+
+  record PeopleResponse {
+    Person person;
+  }
+
+}
