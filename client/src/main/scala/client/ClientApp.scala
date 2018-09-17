@@ -17,6 +17,8 @@ class ClientProgram[F[_]: Effect: Logger] extends AppBoot[F] {
     for {
       serviceApi <- SmartHomeServiceApi.createInstance(config.host.value, config.port.value)
       _          <- Stream.eval(serviceApi.isEmpty)
+      summary    <- serviceApi.getTemperature
+      _          <- Stream.eval(Logger[F].info(s"The average temperature is: ${summary.averageTemperature}"))
     } yield StreamApp.ExitCode.Success
 }
 

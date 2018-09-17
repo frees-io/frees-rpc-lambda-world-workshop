@@ -5,6 +5,8 @@ import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.fortyseven.protocol._
+import freestyle.rpc.protocol.Empty
+import fs2.Stream
 import io.chrisdavenport.log4cats.Logger
 import io.grpc.{CallOptions, ManagedChannel}
 import monix.execution.Scheduler
@@ -14,6 +16,8 @@ import scala.concurrent.duration._
 trait SmartHomeServiceApi[F[_]] {
 
   def isEmpty: F[Boolean]
+
+  def getTemperature: Stream[F, TemperaturesSummary]
 }
 
 object SmartHomeServiceApi {
@@ -27,6 +31,14 @@ object SmartHomeServiceApi {
         result    <- clientRPC.isEmpty(IsEmptyRequest())
         _         <- L.info(s"Result: $result")
       } yield result.result
+
+    def getTemperature: Stream[F, TemperaturesSummary] = {
+      for {
+        clientRPC   <- Stream.eval(clientRPCF)
+        temperature <- clientRPC.getTemperature(Empty)
+        _           <- Stream.eval(L.info(s"* Received new temperature: 👍 --> $temperature"))
+      } yield temperature
+    }.fold(TemperaturesSummary.empty)((summary, temperature) => summary.append(temperature))
   }
 
   def createInstance[F[_]: Effect](

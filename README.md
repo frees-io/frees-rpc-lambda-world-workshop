@@ -560,13 +560,13 @@ trait SmartHomeServiceApi[F[_]] {
 Whose interpretation could be:
 
 ```scala
-def getTemperature: Stream[F, TemperaturesSummary] = for {
-  client <- Stream.eval(clientF)
-  response <- client
-    .getTemperature(Empty)
-    .flatMap(t => Stream.eval(L.info(s"* Received new temperature: 👍  --> $t")).as(t))
-    .fold(TemperaturesSummary.empty)((summary, temperature) => summary.append(temperature))
-} yield response
+def getTemperature: Stream[F, TemperaturesSummary] = {
+  for {
+    client      <- Stream.eval(clientF)
+    temperature <- client.getTemperature(Empty)
+    _           <- Stream.eval(L.info(s"* Received new temperature: 👍 --> $temperature"))
+  } yield temperature
+}.fold(TemperaturesSummary.empty)((summary, temperature) => summary.append(temperature))
 ```
 
 Basically, we are logging the incoming values and at the end we calculate the average of those values.
