@@ -17,3 +17,6 @@ final case class IsEmptyRequest()
 
 @message
 final case class IsEmptyResponse(result: Boolean)
+
+@message
+final case class ComingBackModeResponse(actions: List[SmartHomeAction])

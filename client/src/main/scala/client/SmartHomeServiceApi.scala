@@ -18,6 +18,8 @@ trait SmartHomeServiceApi[F[_]] {
   def isEmpty: F[Boolean]
 
   def getTemperature: Stream[F, TemperaturesSummary]
+
+  def comingBackMode(locations: Stream[F, Location]): Stream[F, ComingBackModeResponse]
 }
 
 object SmartHomeServiceApi {
@@ -39,6 +41,12 @@ object SmartHomeServiceApi {
         _           <- Stream.eval(L.info(s"* Received new temperature: 👍 --> $temperature"))
       } yield temperature
     }.fold(TemperaturesSummary.empty)((summary, temperature) => summary.append(temperature))
+
+    def comingBackMode(locations: Stream[F, Location]): Stream[F, ComingBackModeResponse] =
+      for {
+        clientRPC <- Stream.eval(clientRPCF)
+        response  <- clientRPC.comingBackMode(locations)
+      } yield response
   }
 
   def createInstance[F[_]: Effect](

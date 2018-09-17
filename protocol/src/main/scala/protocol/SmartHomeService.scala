@@ -8,4 +8,6 @@ import fs2.Stream
   def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
 
   def getTemperature(empty: Empty.type): Stream[F, Temperature]
+
+  def comingBackMode(request: Stream[F, Location]): Stream[F, ComingBackModeResponse]
 }
