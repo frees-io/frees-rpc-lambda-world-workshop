@@ -12,6 +12,11 @@
     - [Client](#client)
 - [Evolving the Avro schema](#evolving-the-avro-schema)
   - [Protocol](#protocol-1)
+- [Unary RPC service: `IsEmpty`](#unary-rpc-service-isempty)
+  - [Protocol](#protocol-2)
+  - [Server](#server-1)
+  - [Client](#client-1)
+  - [Result](#result)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -351,6 +356,105 @@ INFO  - PeopleService - Request: PeopleRequest(bar)
 INFO  - PeopleService - Sending response: Person(bar,9,(206) 740-2096)
 INFO  - PeopleService - Request: PeopleRequest(baz)
 INFO  - PeopleService - Sending response: Person(baz,17,(206) 812-1984)
+```
+
+## Unary RPC service: `IsEmpty`
+
+Having said this, now it's the right moment to get started to develop the features of the SmartHome, and discard the `People` stuff. As we said above, we want also to build a unary RPC service to let clients know if there is somebody in the home or there is not.
+
+### Protocol
+
+In order to show another way to define protocols, we are going to express our models and services using directly Scala code, and using **ProtocolBuffer** as serialiser instead of **Avro**.
+
+So the protocol module can adopt know this shape (of course we should also discard the `idlgens` references at `ProjectPlugin.scala` and `plugins.sbt`):
+
+```scala
+├── protocol
+│   └── src
+│       └── main
+│           └── scala
+│               └── protocol
+│                   ├── Messages.scala
+│                   └── SmartHomeService.scala
+```
+
+**_Messages.scala_**
+
+Where we defined the messages flowing through the wire:
+
+```scala
+@message
+final case class IsEmptyRequest()
+
+@message
+final case class IsEmptyResponse(result: Boolean)
+```
+
+**_SmartHomeService.scala_**
+
+Where we defined interface of the RPC service:
+
+```scala
+@service(Protobuf) trait SmartHomeService[F[_]] {
+
+  def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
+
+}
+```
+
+### Server
+
+Now, we have to implement an interpreter for the new service `SmartHomeService`:
+
+```scala
+class SmartHomeServiceHandler[F[_]: Sync: Logger] extends SmartHomeService[F] {
+  val serviceName = "SmartHomeService"
+
+  override def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse] =
+    Logger[F].info(s"$serviceName - Request: $request").as(IsEmptyResponse(true))
+
+}
+```
+
+And bind it to the gRPC server:
+
+```scala
+val grpcConfigs: List[GrpcConfig] = List(AddService(SmartHomeService.bindService[F]))
+```
+
+### Client
+
+And the client, of course, needs an algebra to describe the same operation:
+
+```scala
+trait SmartHomeServiceApi[F[_]] {
+  def isEmpty(): F[Boolean]
+}
+```
+
+That will be called when the app is running
+
+```scala
+for {
+  serviceApi <- SmartHomeServiceApi.createInstance(config.host.value, config.port.value)
+  _          <- Stream.eval(serviceApi.isEmpty)
+} yield StreamApp.ExitCode.Success
+```
+
+### Result
+
+When we run the client now with `sbt runClient` we get:
+
+```bash
+INFO  - Created new RPC client for (localhost,19683)
+INFO  - Result: IsEmptyResponse(true)
+INFO  - Removed 1 RPC clients from cache.
+```
+
+And the server log the request as expected:
+
+```bash
+INFO  - SmartHomeService - Request: IsEmptyRequest()
 ```
 
 <!-- DOCTOC SKIP -->

@@ -1,6 +1,0 @@
-@namespace("com.fortyseven.protocol")
-protocol PeopleService {
-  import idl "People.avdl";
-
-  com.fortyseven.protocol.PeopleResponse getPerson(com.fortyseven.protocol.PeopleRequest request);
-}

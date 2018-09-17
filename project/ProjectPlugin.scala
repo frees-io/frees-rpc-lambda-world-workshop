@@ -1,4 +1,3 @@
-import freestyle.rpc.idlgen.IdlGenPlugin.autoImport._
 import org.scalafmt.sbt.ScalafmtPlugin.autoImport._
 import sbt.Keys._
 import sbt._
@@ -35,12 +34,7 @@ object ProjectPlugin extends AutoPlugin {
   lazy val commonsSettings: Seq[Def.Setting[_]] = logSettings ++ configSettings
 
   lazy val rpcProtocolSettings: Seq[Def.Setting[_]] = Seq(
-    idlType := "avro",
-    srcGenSerializationType := "AvroWithSchema",
-    sourceGenerators in Compile += (srcGen in Compile).taskValue,
-    libraryDependencies ++= Seq(
-      "io.frees" %% "frees-rpc-client-core" % V.freestyleRPC
-    )
+    libraryDependencies ++= Seq("io.frees" %% "frees-rpc-client-core" % V.freestyleRPC)
   )
 
   lazy val rpcClientSettings: Seq[Def.Setting[_]] = logSettings ++ Seq(

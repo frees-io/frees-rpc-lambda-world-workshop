@@ -5,7 +5,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.fortyseven.commons._
 import com.fortyseven.commons.config.ServiceConfig
-import com.fortyseven.protocol.PeopleService
+import com.fortyseven.protocol.SmartHomeService
 import freestyle.rpc.server.{AddService, GrpcConfig, GrpcServer}
 import fs2.{Stream, StreamApp}
 import io.chrisdavenport.log4cats.Logger
@@ -19,9 +19,9 @@ class ServerProgram[F[_]: Effect: Logger] extends AppBoot[F] {
 
   override def appStream(config: ServiceConfig): fs2.Stream[F, StreamApp.ExitCode] = {
 
-    implicit val PS: PeopleService[F] = new PeopleServiceHandler[F]
+    implicit val SHS: SmartHomeService[F] = new SmartHomeServiceHandler[F]
 
-    val grpcConfigs: List[GrpcConfig] = List(AddService(PeopleService.bindService[F]))
+    val grpcConfigs: List[GrpcConfig] = List(AddService(SmartHomeService.bindService[F]))
 
     Stream.eval(
       for {
