@@ -1,5 +1,7 @@
 import ProjectPlugin._
 
+resolvers in ThisBuild += Resolver.bintrayRepo("beyondthelines", "maven")
+
 lazy val protocol = project.in(file("protocol")).settings(rpcProtocolSettings)
 
 lazy val commons = project.in(file("commons")).settings(commonsSettings)
